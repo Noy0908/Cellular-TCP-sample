@@ -1,0 +1,55 @@
+/*
+ * Copyright (c) 2024 Nordic Semiconductor ASA
+ *
+ * SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
+ */
+//  / {
+// 	sensor_sim: sensor-sim {
+// 		compatible = "nordic,sensor-sim";
+// 		status = "okay";
+// 		acc-signal = "wave";
+// 	};
+
+// 	measure {
+// 		compatible = "nordic,nrf-pinctrl";
+// 		en {
+// 			compatible = "gpio-leds";
+// 			measure_en: measure_en {
+// 				gpios = <&gpio0 16 0x0>;
+// 				label = "measure_en";
+// 			};
+// 		};
+// 		signal {
+// 			compatible = "gpio-keys";
+// 			signal1: signal_1 {
+// 				// gpios = <&gpio0 13 0x1>;			//for 9160DK
+// 				gpios = <&gpio0 6 0x1>;				//for 9151dk
+// 				label = "signal_1";
+// 			};
+// 			signal2: signal_2 {
+// 				// gpios = <&gpio0 15 0x1>;			//for 9160DK
+// 				gpios = <&gpio0 7 0x1>;				//for 9151dk
+// 				label = "signal_2";
+// 			};
+// 		};
+// 	};
+// };
+
+
+// &gpio0 {
+// 	status = "okay";
+// 	sense-edge-mask = < 0x4040 >;
+//  };
+
+
+
+// &led0 {
+// 	gpios = <&gpio0 2 0>;
+// };
+
+
+
+/* External flash device is disabled by default */
+&gd25wb256 {
+	status = "okay";
+};

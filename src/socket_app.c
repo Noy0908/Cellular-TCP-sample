@@ -8,42 +8,36 @@
 #include <stdbool.h>
 #include <errno.h>
 #include <stdlib.h>
-
-#if !defined(__ZEPHYR__)
-
-#include <netinet/in.h>
-#include <sys/socket.h>
-#include <arpa/inet.h>
-#include <unistd.h>
-#include <fcntl.h>
-#include <poll.h>
-
-#define USE_IPV6
-
-#else
-
 #include <zephyr/posix/fcntl.h>
 #include <zephyr/net/socket.h>
 #include <zephyr/kernel.h>
+#include <zephyr/logging/log.h>
+LOG_MODULE_REGISTER(tcp_sample, CONFIG_TCP_LOG_LEVEL);
+
+#include "app.h"
 
 #ifdef CONFIG_NET_IPV6
 #define USE_IPV6
 #endif
 
-#endif
+#define TCP_THREAD_STACK_SIZE               4096
+#define TCP_THREAD_PRIORITY 				5
 
 /* For Zephyr, keep max number of fd's in sync with max poll() capacity */
 #ifdef CONFIG_NET_SOCKETS_POLL_MAX
-#define NUM_FDS CONFIG_NET_SOCKETS_POLL_MAX
+#define NUM_FDS 	CONFIG_NET_SOCKETS_POLL_MAX
 #else
-#define NUM_FDS 5
+#define NUM_FDS 	5
 #endif
 
-#define BIND_PORT 4242
+#define BIND_PORT 	4242
 
 /* Number of simultaneous client connections will be NUM_FDS be minus 2 */
 struct pollfd pollfds[NUM_FDS];
 int pollnum;
+
+
+
 
 #define fatal(msg, ...) { \
 		printf("Error: " msg "\n", ##__VA_ARGS__); \
@@ -94,6 +88,7 @@ found:
 	return 0;
 }
 
+
 void pollfds_del(int fd)
 {
 	for (int i = 0; i < pollnum; i++) {
@@ -104,12 +99,20 @@ void pollfds_del(int fd)
 	}
 }
 
-int main(void)
+
+static void tcp_thread_fn(void)
 {
 	int res;
 	static int counter;
 	int num_servs = 0;
-#if !defined(USE_IPV6) || !(CONFIG_SOC_SERIES_CC32XX)
+	int i = 0;
+
+	k_sem_take(&lte_connected_sem, K_FOREVER);
+	printf("LTE connected successfully, now we satrt tcp task!!!\n");
+
+#if 0
+
+#if !defined(USE_IPV6)
 	int serv4;
 	struct sockaddr_in bind_addr4 = {
 		.sin_family = AF_INET,
@@ -118,8 +121,7 @@ int main(void)
 			.s_addr = htonl(INADDR_ANY),
 		},
 	};
-#endif
-#ifdef USE_IPV6
+#else
 	int serv6;
 	struct sockaddr_in6 bind_addr6 = {
 		.sin6_family = AF_INET6,
@@ -128,11 +130,11 @@ int main(void)
 	};
 #endif
 
-#if !defined(USE_IPV6) || !(CONFIG_SOC_SERIES_CC32XX)
+#if !defined(USE_IPV6)
 	serv4 = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 	if (serv4 < 0) {
 		printf("error: socket: %d\n", errno);
-		exit(1);
+		// goto error;
 	}
 
 	res = bind(serv4, (struct sockaddr *)&bind_addr4, sizeof(bind_addr4));
@@ -144,28 +146,16 @@ int main(void)
 	setblocking(serv4, false);
 	listen(serv4, 5);
 	pollfds_add(serv4);
-#endif
-
-#ifdef USE_IPV6
+#else
 	serv6 = socket(AF_INET6, SOCK_STREAM, IPPROTO_TCP);
 	if (serv6 < 0) {
 		printf("error: socket(AF_INET6): %d\n", errno);
-		exit(1);
+		// goto error;
 	}
-	#ifdef IPV6_V6ONLY
-	/* For Linux, we need to make socket IPv6-only to bind it to the
-	 * same port as IPv4 socket above.
-	 */
-	int TRUE = 1;
-	res = setsockopt(serv6, IPPROTO_IPV6, IPV6_V6ONLY, &TRUE, sizeof(TRUE));
-	if (res < 0) {
-		printf("error: setsockopt: %d\n", errno);
-		exit(1);
-	}
-	#endif
 	res = bind(serv6, (struct sockaddr *)&bind_addr6, sizeof(bind_addr6));
 	if (res == -1) {
 		printf("Cannot bind IPv6, errno: %d\n", errno);
+		// goto error;
 	}
 	num_servs++;
 
@@ -174,10 +164,22 @@ int main(void)
 	pollfds_add(serv6);
 #endif
 
-	printf("Asynchronous TCP echo server waits for connections on "
-	       "port %d...\n", BIND_PORT);
+#endif
+	printf("Asynchronous TCP echo server waits for connections on port %d...\n", BIND_PORT);
 
 	while (1) {
+	#if 1
+		// k_sleep(K_SECONDS(5));
+		LOG_INF("TCP wait for poll event at %lld.\n",k_ticks_to_ms_floor64(k_uptime_ticks()));
+
+		char *data_buffer = NULL;
+
+		if(k_msgq_get(&tx_send_queue, &data_buffer, K_SECONDS(5)) == 0)
+		{
+			LOG_INF("%d-%d-%d\n",data_buffer[1],data_buffer[2],data_buffer[3]);
+			k_free(data_buffer);
+		}
+	#else
 		struct sockaddr_storage client_addr;
 		socklen_t client_addr_len = sizeof(client_addr);
 		char addr_str[32];
@@ -188,7 +190,7 @@ int main(void)
 			continue;
 		}
 
-		for (int i = 0; i < pollnum; i++) {
+		for (i = 0; i < pollnum; i++) {
 			if (!(pollfds[i].revents & POLLIN)) {
 				continue;
 			}
@@ -256,6 +258,13 @@ error:
 				}
 			}
 		}
+		#endif
 	}
-	return 0;
 }
+
+
+
+
+K_THREAD_DEFINE(tcp_thread, TCP_THREAD_STACK_SIZE,
+		tcp_thread_fn, NULL, NULL, NULL,
+		TCP_THREAD_PRIORITY, 0, 0);
