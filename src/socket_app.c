@@ -9,6 +9,7 @@
 #include <errno.h>
 #include <stdlib.h>
 #include <zephyr/posix/fcntl.h>
+#include <zephyr/posix/sys/eventfd.h>
 #include <zephyr/net/socket.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
@@ -16,9 +17,9 @@ LOG_MODULE_REGISTER(tcp_sample, CONFIG_TCP_LOG_LEVEL);
 
 #include "app.h"
 
-#ifdef CONFIG_NET_IPV6
-#define USE_IPV6
-#endif
+// #ifdef CONFIG_NET_IPV6
+// #define USE_IPV6
+// #endif
 
 #define TCP_THREAD_STACK_SIZE               4096
 #define TCP_THREAD_PRIORITY 				5
@@ -33,6 +34,8 @@ LOG_MODULE_REGISTER(tcp_sample, CONFIG_TCP_LOG_LEVEL);
 #define BIND_PORT 	4242
 
 int event_fd = 0;
+
+bool reconnect = false;
 
 #if 0
 void send_message_queue(void)
@@ -86,11 +89,12 @@ static int do_tcp_send(int sock, const uint8_t *data, int datalen)
 			ret = -errno;
 			break;
 		} else {
+			// LOG_INF("Socket send data length = %d\n", ret);
 			offset += ret;
 		}
 	}
 
-	return ret;
+	return offset;
 }
 
 
@@ -103,9 +107,8 @@ static void tcp_thread_fn(void)
 	uint8_t rec_buf[512] = {0};  /* For socket receive data. */
 	
 	k_sem_take(&lte_connected_sem, K_FOREVER);
-	printf("LTE connected successfully, now we satrt tcp task!!!\n");
+	printf("LTE connected successfully, now we start tcp task!!!\n");
 
-#if 1
 retry:
 
 #if !defined(USE_IPV6)
@@ -113,7 +116,7 @@ retry:
 
 	client_socket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 	if (client_socket < 0) {
-		printf("error: socket(AF_INET6): %d\n", errno);
+		printf("error: socket(AF_INET): %d\n", errno);
 		goto error_exit;
 	}
 	server_addr.sin_family = AF_INET;
@@ -121,6 +124,10 @@ retry:
 	inet_pton(AF_INET, CONFIG_TCP_SERVER_ADDRESS_STATIC,&server_addr.sin_addr);
 
 	ret = connect(client_socket, (struct sockaddr *)&server_addr, sizeof(struct sockaddr_in));
+	if (ret) {
+		LOG_ERR("AF_INET connect() failed: %d", -errno);
+		goto error_exit;
+	}
 #else
 	struct sockaddr_in6 server_addr = {0};
 
@@ -133,17 +140,16 @@ retry:
 	server_addr.sin6_port = htons(CONFIG_TCP_SERVER_PORT);
 	inet_pton(AF_INET6, CONFIG_TCP_SERVER_ADDRESS_STATIC,&server_addr.sin6_addr);
 
-	// ret = connect(client_socket, (struct sockaddr *)&server_addr, sizeof(struct sockaddr_in6));
-#endif
+	ret = connect(client_socket, (struct sockaddr *)&server_addr, sizeof(struct sockaddr_in6));
 	if (ret) {
-		LOG_ERR("connect() failed: %d", -errno);
+		LOG_ERR("AF_INET6 connect() failed: %d", -errno);
 		goto error_exit;
 	}
+#endif
+	
 
 	fds[0].fd = client_socket;
 	fds[0].events = POLLIN;
-#endif
-
 	event_fd = eventfd(0, 0);
 	fds[1].fd = event_fd;
 	fds[1].events = POLLIN;
@@ -182,7 +188,8 @@ retry:
 		if ((fds[0].revents & POLLHUP) != 0) {
 			/* Lose LTE connection / remote end close */
 			LOG_WRN("SOCK (%d): POLLHUP", fds[0].fd);
-			// k_sem_take(&lte_connected_sem, K_FOREVER);
+			reconnect = true;
+			k_sem_take(&lte_connected_sem, K_FOREVER);
 			break;
 		}
 
@@ -194,14 +201,15 @@ retry:
 			socket_data_t data_buffer = {0};
 			if (k_msgq_peek(&tx_send_queue, &data_buffer) == 0) 
 			{
-				LOG_INF("%d-%d-%d\n",data_buffer.data[1],data_buffer.data[2],data_buffer.data[3]);
-				// ret = do_tcp_send(client_socket, data_buffer.data, data_buffer.length);
+				LOG_INF("[%d]:%d-%d-%d\n",data_buffer.length, data_buffer.data[1],data_buffer.data[2],data_buffer.data[3]);
+				ret = do_tcp_send(client_socket, data_buffer.data, data_buffer.length);
 				{
-					// if(ret == data_buffer.length)	
+					if(ret == data_buffer.length)
 					{
 						/* send successfully, delete the queue message and free memory */
 						k_msgq_get(&tx_send_queue, &data_buffer, K_NO_WAIT);
 						k_free(data_buffer.data);
+						LOG_WRN("Socket send [%d] successfully , the length is %d!\n",data_buffer.data[1],ret);
 					}
 				}
 			}
@@ -213,7 +221,7 @@ error_exit:
 	{
 		close(client_socket);
 	}
-			
+	k_sleep(K_SECONDS(3));	
 	goto retry;
 }
 

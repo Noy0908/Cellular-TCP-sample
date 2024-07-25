@@ -22,4 +22,6 @@ extern struct k_msgq tx_send_queue;
 
 extern int event_fd;
 
+extern bool reconnect;
+
 #endif /* _APP_H */

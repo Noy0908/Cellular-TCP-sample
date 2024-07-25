@@ -15,14 +15,14 @@
 #include "app.h"
 
 
-#define FW_VERSION			"1.2.0"
+#define FW_VERSION			"1.2.5"
 
 #define UDP_IP_HEADER_SIZE 	28
 
 #define TX_QUEUE_COUNT		20
 
-static int client_fd;
-static struct sockaddr_storage host_addr;
+// static int client_fd;
+// static struct sockaddr_storage host_addr;
 static struct k_work_delayable socket_transmission_work;
 static int data_upload_iterations = CONFIG_TCP_DATA_UPLOAD_ITERATIONS;
 
@@ -30,7 +30,7 @@ static int data_upload_iterations = CONFIG_TCP_DATA_UPLOAD_ITERATIONS;
 K_SEM_DEFINE(lte_connected_sem, 0, 1);
 K_SEM_DEFINE(modem_shutdown_sem, 0, 1);
 
-K_MSGQ_DEFINE(tx_send_queue, 4, TX_QUEUE_COUNT, 4);
+K_MSGQ_DEFINE(tx_send_queue, sizeof(socket_data_t), TX_QUEUE_COUNT, 4);
 
 static void socket_transmission_work_fn(struct k_work *work)
 {
@@ -187,6 +187,34 @@ static void lte_handler(const struct lte_lc_evt *const evt)
 
 // 	return 0;
 // }
+static void modem_connect(void)
+{
+	int ret = 0;
+
+	do {
+		printk("Connecting to network.");
+		printk("This may take several minutes.");
+
+		ret = lte_lc_connect();
+		if (ret < 0) {
+			printk("Failed to establish LTE connection (%d).", ret);
+			printk("Will retry in a minute.");
+			lte_lc_offline();
+			k_sleep(K_SECONDS(60));
+		} else {
+			enum lte_lc_lte_mode mode;
+
+			lte_lc_lte_mode_get(&mode);
+			if (mode == LTE_LC_LTE_MODE_NBIOT) {
+				printk("Connected to NB-IoT network");
+			} else if (mode == LTE_LC_LTE_MODE_LTEM) {
+				printk("Connected to LTE network");
+			} else  {
+				printk("Connected to unknown network");
+			}
+		}
+	} while (ret < 0);
+}
 
 
 int main(void)
@@ -209,23 +237,33 @@ int main(void)
 		return -1;
 	}
 
-	// k_sem_take(&lte_connected_sem, K_FOREVER);
-
-	// err = socket_connect();
-	// if (err) {
-	// 	return -1;
-	// }
-
-	// start_tcp_task();
-
 	k_work_schedule(&socket_transmission_work, K_NO_WAIT);
 
-	k_sem_take(&modem_shutdown_sem, K_FOREVER);
+	while (true) 
+	{
+		/* Set network state to start for blocking LTE */
+		if (reconnect) {
+			reconnect = false;
 
-	err = nrf_modem_lib_shutdown();
-	if (err) {
-		return -1;
+			printk("LTE connection error. The sample will try to re-establish network connection.\n");
+
+			/* Try to reconnect to the network. */
+			err = lte_lc_offline();
+			if (err < 0) {
+				printk("Failed to put LTE link in offline state (%d)\n", err);
+			}
+			modem_connect();
+		}
+
+		/** This part code may not excute, just for low power use api */
+		k_sem_take(&modem_shutdown_sem, K_SECONDS(2));
+		err = nrf_modem_lib_shutdown();
+		if (err) {
+			return -1;
+		}	
 	}
+
+	
 
 	return 0;
 }
