@@ -32,234 +32,189 @@ LOG_MODULE_REGISTER(tcp_sample, CONFIG_TCP_LOG_LEVEL);
 
 #define BIND_PORT 	4242
 
-/* Number of simultaneous client connections will be NUM_FDS be minus 2 */
-struct pollfd pollfds[NUM_FDS];
-int pollnum;
+int event_fd = 0;
 
-
-
-
-#define fatal(msg, ...) { \
-		printf("Error: " msg "\n", ##__VA_ARGS__); \
-		exit(1); \
-	}
-
-
-static void setblocking(int fd, bool val)
+#if 0
+void send_message_queue(void)
 {
-	int fl, res;
+	
+		LOG_INF("TCP wait for poll event at %lld.\n",k_ticks_to_ms_floor64(k_uptime_ticks()));
 
-	fl = fcntl(fd, F_GETFL, 0);
-	if (fl == -1) {
-		fatal("fcntl(F_GETFL): %d", errno);
-	}
-
-	if (val) {
-		fl &= ~O_NONBLOCK;
-	} else {
-		fl |= O_NONBLOCK;
-	}
-
-	res = fcntl(fd, F_SETFL, fl);
-	if (fl == -1) {
-		fatal("fcntl(F_SETFL): %d", errno);
-	}
-}
-
-int pollfds_add(int fd)
-{
-	int i;
-	if (pollnum < NUM_FDS) {
-		i = pollnum++;
-	} else {
-		for (i = 0; i < NUM_FDS; i++) {
-			if (pollfds[i].fd < 0) {
-				goto found;
-			}
+		socket_data_t data_buffer = {0};
+		// if(k_msgq_get(&tx_send_queue, &data_buffer, K_SECONDS(5)) == 0)
+		if (k_msgq_peek(&tx_send_queue, &data_buffer) == 0) 
+		{
+			LOG_INF("%d-%d-%d\n",data_buffer.data[1],data_buffer.data[2],data_buffer.data[3]);
+			// k_free(data_buffer.data);
+			// ret = do_tcp_send(client_socket, data_buffer.data, data_buffer.length);
+			// {
+			// 	if(ret == data_buffer.length)	
+			// 	{
+			// 		/* send successfully, delete the queue message and free memory */
+					k_msgq_get(&tx_send_queue, &data_buffer, K_NO_WAIT);
+					k_free(data_buffer.data);
+			// 	}
+			// }
+		}
+		else
+		{
+			k_sleep(K_SECONDS(5));
 		}
 
-		return -1;
-	}
+		// char *data_buffer = NULL;
 
-found:
-	pollfds[i].fd = fd;
-	pollfds[i].events = POLLIN;
-
-	return 0;
+		// if(k_msgq_get(&tx_send_queue, &data_buffer, K_SECONDS(5)) == 0)
+		// {
+		// 	LOG_INF("%d-%d-%d\n",data_buffer[1],data_buffer[2],data_buffer[3]);
+		// 	k_free(data_buffer);
+		// }
+	
 }
+#endif
 
 
-void pollfds_del(int fd)
+
+static int do_tcp_send(int sock, const uint8_t *data, int datalen)
 {
-	for (int i = 0; i < pollnum; i++) {
-		if (pollfds[i].fd == fd) {
-			pollfds[i].fd = -1;
+	int ret = 0;
+	uint32_t offset = 0;
+
+	while (offset < datalen) {
+		ret = send(sock, data + offset, datalen - offset, 0);
+		if (ret < 0) {
+			LOG_ERR("send() failed: %d, sent: %d", -errno, offset);
+			ret = -errno;
 			break;
+		} else {
+			offset += ret;
 		}
 	}
+
+	return ret;
 }
 
 
+/* tcp client task */
 static void tcp_thread_fn(void)
 {
-	int res;
-	static int counter;
-	int num_servs = 0;
-	int i = 0;
-
+	int ret = 0;
+	struct pollfd fds[2];
+	int client_socket = 0;
+	uint8_t rec_buf[512] = {0};  /* For socket receive data. */
+	
 	k_sem_take(&lte_connected_sem, K_FOREVER);
 	printf("LTE connected successfully, now we satrt tcp task!!!\n");
 
-#if 0
+#if 1
+retry:
 
 #if !defined(USE_IPV6)
-	int serv4;
-	struct sockaddr_in bind_addr4 = {
-		.sin_family = AF_INET,
-		.sin_port = htons(BIND_PORT),
-		.sin_addr = {
-			.s_addr = htonl(INADDR_ANY),
-		},
-	};
-#else
-	int serv6;
-	struct sockaddr_in6 bind_addr6 = {
-		.sin6_family = AF_INET6,
-		.sin6_port = htons(BIND_PORT),
-		.sin6_addr = IN6ADDR_ANY_INIT,
-	};
-#endif
+	struct sockaddr_in server_addr = {0};
 
-#if !defined(USE_IPV6)
-	serv4 = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-	if (serv4 < 0) {
-		printf("error: socket: %d\n", errno);
-		// goto error;
-	}
-
-	res = bind(serv4, (struct sockaddr *)&bind_addr4, sizeof(bind_addr4));
-	if (res == -1) {
-		printf("Cannot bind IPv4, errno: %d\n", errno);
-	}
-	num_servs++;
-
-	setblocking(serv4, false);
-	listen(serv4, 5);
-	pollfds_add(serv4);
-#else
-	serv6 = socket(AF_INET6, SOCK_STREAM, IPPROTO_TCP);
-	if (serv6 < 0) {
+	client_socket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+	if (client_socket < 0) {
 		printf("error: socket(AF_INET6): %d\n", errno);
-		// goto error;
+		goto error_exit;
 	}
-	res = bind(serv6, (struct sockaddr *)&bind_addr6, sizeof(bind_addr6));
-	if (res == -1) {
-		printf("Cannot bind IPv6, errno: %d\n", errno);
-		// goto error;
-	}
-	num_servs++;
+	server_addr.sin_family = AF_INET;
+	server_addr.sin_port = htons(CONFIG_TCP_SERVER_PORT);
+	inet_pton(AF_INET, CONFIG_TCP_SERVER_ADDRESS_STATIC,&server_addr.sin_addr);
 
-	setblocking(serv6, false);
-	listen(serv6, 5);
-	pollfds_add(serv6);
+	ret = connect(client_socket, (struct sockaddr *)&server_addr, sizeof(struct sockaddr_in));
+#else
+	struct sockaddr_in6 server_addr = {0};
+
+	client_socket = socket(AF_INET6, SOCK_STREAM, IPPROTO_TCP);
+	if (client_socket < 0) {
+		printf("error: socket(AF_INET6): %d\n", errno);
+		goto error_exit;
+	}
+	server_addr.sin6_family = AF_INET6;
+	server_addr.sin6_port = htons(CONFIG_TCP_SERVER_PORT);
+	inet_pton(AF_INET6, CONFIG_TCP_SERVER_ADDRESS_STATIC,&server_addr.sin6_addr);
+
+	// ret = connect(client_socket, (struct sockaddr *)&server_addr, sizeof(struct sockaddr_in6));
+#endif
+	if (ret) {
+		LOG_ERR("connect() failed: %d", -errno);
+		goto error_exit;
+	}
+
+	fds[0].fd = client_socket;
+	fds[0].events = POLLIN;
 #endif
 
-#endif
-	printf("Asynchronous TCP echo server waits for connections on port %d...\n", BIND_PORT);
+	event_fd = eventfd(0, 0);
+	fds[1].fd = event_fd;
+	fds[1].events = POLLIN;
 
 	while (1) {
-	#if 1
-		// k_sleep(K_SECONDS(5));
-		LOG_INF("TCP wait for poll event at %lld.\n",k_ticks_to_ms_floor64(k_uptime_ticks()));
-
-		char *data_buffer = NULL;
-
-		if(k_msgq_get(&tx_send_queue, &data_buffer, K_SECONDS(5)) == 0)
-		{
-			LOG_INF("%d-%d-%d\n",data_buffer[1],data_buffer[2],data_buffer[3]);
-			k_free(data_buffer);
+		ret = poll(fds, ARRAY_SIZE(fds), MSEC_PER_SEC * CONFIG_TCP_POLL_TIME);
+		if (ret < 0) {
+			LOG_WRN("poll() error: %d", ret);
+			break;
 		}
-	#else
-		struct sockaddr_storage client_addr;
-		socklen_t client_addr_len = sizeof(client_addr);
-		char addr_str[32];
-
-		res = poll(pollfds, pollnum, -1);
-		if (res == -1) {
-			printf("poll error: %d\n", errno);
+		if (ret == 0) {
+			/* timeout */
+			LOG_INF("TCP wait for poll event at %lld.\n",k_ticks_to_ms_floor64(k_uptime_ticks()));
 			continue;
 		}
 
-		for (i = 0; i < pollnum; i++) {
-			if (!(pollfds[i].revents & POLLIN)) {
-				continue;
+		LOG_DBG("[%d]sock events 0x%08x:%08x", ret,fds[0].revents,fds[1].revents);
+		if ((fds[0].revents & POLLIN) != 0) {
+			/* receive data from server */
+			ret = recv(fds[0].fd, (void *)rec_buf, sizeof(rec_buf), MSG_DONTWAIT);
+			if (ret < 0 && errno != EAGAIN) {
+				LOG_WRN("recv() error: %d", -errno);
+			} else if (ret > 0) {
+				// LOG_DBG(rec_buf, ret);
+				//receive_data_handle(rec_buf, ret);
 			}
-			int fd = pollfds[i].fd;
-			if (i < num_servs) {
-				/* If server socket */
-				int client = accept(fd, (struct sockaddr *)&client_addr,
-						    &client_addr_len);
-				void *addr = &((struct sockaddr_in *)&client_addr)->sin_addr;
+		}
+		if ((fds[0].revents & POLLERR) != 0) {
+			LOG_WRN("SOCK (%d): POLLERR", fds[0].fd);
+			break;
+		}
+		if ((fds[0].revents & POLLNVAL) != 0) {
+			LOG_WRN("SOCK (%d): POLLNVAL", fds[0].fd);
+			break;
+		}
+		if ((fds[0].revents & POLLHUP) != 0) {
+			/* Lose LTE connection / remote end close */
+			LOG_WRN("SOCK (%d): POLLHUP", fds[0].fd);
+			// k_sem_take(&lte_connected_sem, K_FOREVER);
+			break;
+		}
 
-				if (client < 0) {
-					printf("error: accept: %d\n", errno);
-					continue;
-				}
-				inet_ntop(client_addr.ss_family, addr,
-					  addr_str, sizeof(addr_str));
-				printf("Connection #%d from %s fd=%d\n", counter++,
-				       addr_str, client);
-				if (pollfds_add(client) < 0) {
-					static char msg[] = "Too many connections\n";
+		/***************** Events to send message queue. *****************************/
+		if ((fds[1].revents & POLLIN) != 0) {
+			int64_t value;
+			eventfd_read(fds[1].fd, &value);		//delete event
 
-					res = send(client, msg, sizeof(msg) - 1, 0);
-					if (res < 0) {
-						printf("error: send: %d\n", errno);
+			socket_data_t data_buffer = {0};
+			if (k_msgq_peek(&tx_send_queue, &data_buffer) == 0) 
+			{
+				LOG_INF("%d-%d-%d\n",data_buffer.data[1],data_buffer.data[2],data_buffer.data[3]);
+				// ret = do_tcp_send(client_socket, data_buffer.data, data_buffer.length);
+				{
+					// if(ret == data_buffer.length)	
+					{
+						/* send successfully, delete the queue message and free memory */
+						k_msgq_get(&tx_send_queue, &data_buffer, K_NO_WAIT);
+						k_free(data_buffer.data);
 					}
-					close(client);
-				} else {
-					setblocking(client, false);
-				}
-			} else {
-				char buf[128];
-				int len = recv(fd, buf, sizeof(buf), 0);
-				if (len <= 0) {
-					if (len < 0) {
-						printf("error: recv: %d\n", errno);
-					}
-error:
-					pollfds_del(fd);
-					close(fd);
-					printf("Connection fd=%d closed\n", fd);
-				} else {
-					int out_len;
-					const char *p;
-					/* We implement semi-async server,
-					 * where reads are async, but writes
-					 * *can* be sync (blocking). Note that
-					 * in majority of cases they expected
-					 * to not block, but to be robust, we
-					 * handle all possibilities.
-					 */
-					setblocking(fd, true);
-
-					for (p = buf; len; len -= out_len) {
-						out_len = send(fd, p, len, 0);
-						if (out_len < 0) {
-							printf("error: "
-							       "send: %d\n",
-							       errno);
-							goto error;
-						}
-						p += out_len;
-					}
-
-					setblocking(fd, false);
 				}
 			}
 		}
-		#endif
 	}
+
+error_exit:
+	if(client_socket)
+	{
+		close(client_socket);
+	}
+			
+	goto retry;
 }
 
 

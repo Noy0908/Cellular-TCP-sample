@@ -8,10 +8,18 @@
 #define __APP_H_
 
 
+typedef struct {
+	uint8_t *data;
+	uint16_t length;
+} socket_data_t;
+
+
 extern struct k_sem lte_connected_sem;
 
 extern struct k_sem modem_shutdown_sem;
 
 extern struct k_msgq tx_send_queue;
+
+extern int event_fd;
 
 #endif /* _APP_H */

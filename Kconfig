@@ -23,12 +23,16 @@ config TCP_DATA_UPLOAD_ITERATIONS
 	  Set to -1 to transmit indefinitely.
 
 config TCP_SERVER_ADDRESS_STATIC
-	string "UDP server IP address"
+	string "TCP server IP address"
 	default "8.8.8.8"
 
 config TCP_SERVER_PORT
-	int "UDP server port number"
+	int "TCP server port number"
 	default "2469"
+
+config TCP_POLL_TIME
+	int "Poll time-out in seconds for TCP connection"
+	default "60"
 
 config TCP_PSM_ENABLE
 	bool "Enable LTE Power Saving Mode (PSM)"

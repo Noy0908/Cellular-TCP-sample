@@ -7,12 +7,15 @@
 #include <stdio.h>
 #include <zephyr/kernel.h>
 #include <zephyr/net/socket.h>
+#include <zephyr/posix/sys/eventfd.h>
 #include <modem/lte_lc.h>
 #include <modem/nrf_modem_lib.h>
 #include <nrf_modem_at.h>
 
+#include "app.h"
 
-#define FW_VERSION			"1.1.0"
+
+#define FW_VERSION			"1.2.0"
 
 #define UDP_IP_HEADER_SIZE 	28
 
@@ -32,16 +35,23 @@ K_MSGQ_DEFINE(tx_send_queue, 4, TX_QUEUE_COUNT, 4);
 static void socket_transmission_work_fn(struct k_work *work)
 {
 	int err;
-	char *send_buffer = NULL;
+	socket_data_t send_buffer = {0};
+	// char *send_buffer = NULL;
 	
-	send_buffer = k_malloc(256);
-	if (send_buffer != NULL) 
+	send_buffer.data = k_malloc(256);
+	if (send_buffer.data != NULL) 
 	{
-		memset(send_buffer,data_upload_iterations,256);		//just test
+		memset(send_buffer.data,data_upload_iterations,256);		//just test
+		send_buffer.length = 256;
 		/** send the uart data to tcp server*/
 		err = k_msgq_put(&tx_send_queue, &send_buffer, K_NO_WAIT);
 		if (err) {
 			printf("Message sent error: %d", err);
+		}
+
+		err = eventfd_write(event_fd, 1);
+		if (err < 0) {
+			err = -errno;
 		}
 	} 
 	else 
