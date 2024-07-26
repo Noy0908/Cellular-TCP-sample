@@ -9,7 +9,6 @@
 #include <errno.h>
 #include <stdlib.h>
 #include <zephyr/posix/fcntl.h>
-#include <zephyr/posix/sys/eventfd.h>
 #include <zephyr/net/socket.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
@@ -24,57 +23,10 @@ LOG_MODULE_REGISTER(tcp_sample, CONFIG_TCP_LOG_LEVEL);
 #define TCP_THREAD_STACK_SIZE               4096
 #define TCP_THREAD_PRIORITY 				5
 
-/* For Zephyr, keep max number of fd's in sync with max poll() capacity */
-#ifdef CONFIG_NET_SOCKETS_POLL_MAX
-#define NUM_FDS 	CONFIG_NET_SOCKETS_POLL_MAX
-#else
-#define NUM_FDS 	5
-#endif
 
 #define BIND_PORT 	4242
 
-int event_fd = 0;
-
 bool reconnect = false;
-
-#if 0
-void send_message_queue(void)
-{
-	
-		LOG_INF("TCP wait for poll event at %lld.\n",k_ticks_to_ms_floor64(k_uptime_ticks()));
-
-		socket_data_t data_buffer = {0};
-		// if(k_msgq_get(&tx_send_queue, &data_buffer, K_SECONDS(5)) == 0)
-		if (k_msgq_peek(&tx_send_queue, &data_buffer) == 0) 
-		{
-			LOG_INF("%d-%d-%d\n",data_buffer.data[1],data_buffer.data[2],data_buffer.data[3]);
-			// k_free(data_buffer.data);
-			// ret = do_tcp_send(client_socket, data_buffer.data, data_buffer.length);
-			// {
-			// 	if(ret == data_buffer.length)	
-			// 	{
-			// 		/* send successfully, delete the queue message and free memory */
-					k_msgq_get(&tx_send_queue, &data_buffer, K_NO_WAIT);
-					k_free(data_buffer.data);
-			// 	}
-			// }
-		}
-		else
-		{
-			k_sleep(K_SECONDS(5));
-		}
-
-		// char *data_buffer = NULL;
-
-		// if(k_msgq_get(&tx_send_queue, &data_buffer, K_SECONDS(5)) == 0)
-		// {
-		// 	LOG_INF("%d-%d-%d\n",data_buffer[1],data_buffer[2],data_buffer[3]);
-		// 	k_free(data_buffer);
-		// }
-	
-}
-#endif
-
 
 
 static int do_tcp_send(int sock, const uint8_t *data, int datalen)
@@ -95,6 +47,12 @@ static int do_tcp_send(int sock, const uint8_t *data, int datalen)
 	}
 
 	return offset;
+}
+
+
+static void receive_data_handle(uint8_t *data, uint16_t length)
+{
+	LOG_INF("Received %d bytes data from tcp server, data_segment:%d", length, *(data+0));
 }
 
 
@@ -149,9 +107,6 @@ retry:
 	
 	fds[0].fd = client_socket;
 	fds[0].events = POLLIN;
-	event_fd = eventfd(0, 0);
-	fds[1].fd = event_fd;
-	fds[1].events = POLLIN;
 
 	while (1) {
 		ret = poll(fds, ARRAY_SIZE(fds), MSEC_PER_SEC * CONFIG_TCP_POLL_TIME);
@@ -159,44 +114,42 @@ retry:
 			LOG_WRN("poll() error: %d", ret);
 			break;
 		}
-		if (ret == 0) {
+		else if (ret == 0) {
 			/* timeout */
-			LOG_INF("TCP wait for poll event at %lld.\n",k_ticks_to_ms_floor64(k_uptime_ticks()));
-			continue;
+			LOG_INF("TCP wait for poll event timeout at %lld.\n",k_ticks_to_ms_floor64(k_uptime_ticks()));
+			// continue;
 		}
-
-		LOG_DBG("[%d]sock events 0x%08x:%08x", ret,fds[0].revents,fds[1].revents);
-		if ((fds[0].revents & POLLIN) != 0) {
-			/* receive data from server */
-			ret = recv(fds[0].fd, (void *)rec_buf, sizeof(rec_buf), MSG_DONTWAIT);
-			if (ret < 0 && errno != EAGAIN) {
-				LOG_WRN("recv() error: %d", -errno);
-			} else if (ret > 0) {
-				// LOG_DBG(rec_buf, ret);
-				//receive_data_handle(rec_buf, ret);
+		else{
+			LOG_DBG("[%d]sock events 0x%08x", ret,fds[0].revents);
+			if ((fds[0].revents & POLLIN) != 0) {
+				/* receive data from server */
+				ret = recv(fds[0].fd, (void *)rec_buf, sizeof(rec_buf), MSG_DONTWAIT);
+				if (ret < 0 && errno != EAGAIN) {
+					LOG_WRN("recv() error: %d", -errno);
+				} else if (ret > 0) {
+					/** handle the received data from tcp server */
+					receive_data_handle(rec_buf, ret);
+				}
 			}
-		}
-		if ((fds[0].revents & POLLERR) != 0) {
-			LOG_WRN("SOCK (%d): POLLERR", fds[0].fd);
-			break;
-		}
-		if ((fds[0].revents & POLLNVAL) != 0) {
-			LOG_WRN("SOCK (%d): POLLNVAL", fds[0].fd);
-			break;
-		}
-		if ((fds[0].revents & POLLHUP) != 0) {
-			/* Lose LTE connection / remote end close */
-			LOG_WRN("SOCK (%d): POLLHUP", fds[0].fd);
-			reconnect = true;
-			k_sem_take(&lte_connected_sem, K_FOREVER);
-			break;
+			if ((fds[0].revents & POLLERR) != 0) {
+				LOG_WRN("SOCK (%d): POLLERR", fds[0].fd);
+				break;
+			}
+			if ((fds[0].revents & POLLNVAL) != 0) {
+				LOG_WRN("SOCK (%d): POLLNVAL", fds[0].fd);
+				break;
+			}
+			if ((fds[0].revents & POLLHUP) != 0) {
+				/* Lose LTE connection / remote end close */
+				LOG_WRN("SOCK (%d): POLLHUP", fds[0].fd);
+				reconnect = true;
+				k_sem_take(&lte_connected_sem, K_FOREVER);
+				break;
+			}
 		}
 
 		/***************** Events to send message queue. *****************************/
-		if ((fds[1].revents & POLLIN) != 0) {
-			int64_t value;
-			eventfd_read(fds[1].fd, &value);		//delete event
-
+		{
 			socket_data_t data_buffer = {0};
 			if (k_msgq_peek(&tx_send_queue, &data_buffer) == 0) 
 			{

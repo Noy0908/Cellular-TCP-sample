@@ -7,7 +7,6 @@
 #include <stdio.h>
 #include <zephyr/kernel.h>
 #include <zephyr/net/socket.h>
-#include <zephyr/posix/sys/eventfd.h>
 #include <modem/lte_lc.h>
 #include <modem/nrf_modem_lib.h>
 #include <nrf_modem_at.h>
@@ -15,14 +14,12 @@
 #include "app.h"
 
 
-#define FW_VERSION			"1.2.8"
+#define FW_VERSION			"1.3.1"
 
 #define UDP_IP_HEADER_SIZE 	28
 
 #define TX_QUEUE_COUNT		20
 
-// static int client_fd;
-// static struct sockaddr_storage host_addr;
 static struct k_work_delayable socket_transmission_work;
 static int data_upload_iterations = CONFIG_TCP_DATA_UPLOAD_ITERATIONS;
 
@@ -58,11 +55,6 @@ static void socket_transmission_work_fn(struct k_work *work)
 		if (err) {
 			printf("Message sent error: %d", err);
 		}
-
-		err = eventfd_write(event_fd, 1);
-		if (err < 0) {
-			err = -errno;
-		}
 	} 
 	else 
 	{
@@ -70,50 +62,6 @@ static void socket_transmission_work_fn(struct k_work *work)
 	}
 
 	printk("socket_transmission_work_fn[%d] been triggeded at %lld,\r\n ",data_upload_iterations,k_ticks_to_ms_floor64(k_uptime_ticks()));
-
-
-#if 0
-
-#if defined(CONFIG_TCP_RAI_LAST)
-	/* Let the modem know that this is the last packet for now and we do not
-	 * wait for a response.
-	 */
-	int rai = RAI_LAST;
-
-	err = setsockopt(client_fd, SOL_SOCKET, SO_RAI, &rai, sizeof(rai));
-	if (err) {
-		printk("Failed to set socket option, error: %d\n", errno);
-	}
-#endif
-
-#if defined(CONFIG_TCP_RAI_ONGOING)
-	/* Let the modem know that we expect to keep the network up longer.
-	 */
-	int rai = RAI_ONGOING;
-
-	err = setsockopt(client_fd, SOL_SOCKET, SO_RAI, &rai, sizeof(rai));
-	if (err) {
-		printk("Failed to set socket option, error: %d\n", errno);
-	}
-#endif
-
-	// err = send(client_fd, buffer, sizeof(buffer), 0);
-	// if (err < 0) {
-	// 	printk("Failed to transmit UDP packet, error: %d\n", errno);
-	// }
-
-#if defined(CONFIG_UDP_RAI_NO_DATA)
-	/* Let the modem know that there will be no upcoming data transmission anymore.
-	 */
-	int rai = RAI_NO_DATA;
-
-	err = setsockopt(client_fd, SOL_SOCKET, SO_RAI, &rai, sizeof(rai));
-	if (err) {
-		printk("Failed to set socket option, error: %d\n", errno);
-	}
-#endif
-
-#endif
 
 	/* Transmit a limited number of times and then shutdown. */
 	if (data_upload_iterations > 0) {
@@ -173,32 +121,7 @@ static void lte_handler(const struct lte_lc_evt *const evt)
 	}
 }
 
-// static int socket_connect(void)
-// {
-// 	int err;
-// 	struct sockaddr_in *server4 = ((struct sockaddr_in *)&host_addr);
 
-// 	server4->sin_family = AF_INET;
-// 	server4->sin_port = htons(CONFIG_UDP_SERVER_PORT);
-
-// 	inet_pton(AF_INET, CONFIG_UDP_SERVER_ADDRESS_STATIC, &server4->sin_addr);
-
-// 	client_fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-// 	if (client_fd < 0) {
-// 		printk("Failed to create UDP socket, error: %d\n", errno);
-// 		err = -errno;
-// 		return err;
-// 	}
-
-// 	err = connect(client_fd, (struct sockaddr *)&host_addr, sizeof(struct sockaddr_in));
-// 	if (err < 0) {
-// 		printk("Failed to connect socket, error: %d\n", errno);
-// 		close(client_fd);
-// 		return err;
-// 	}
-
-// 	return 0;
-// }
 static void modem_connect(void)
 {
 	int ret = 0;
@@ -273,14 +196,7 @@ int main(void)
 				return -1;
 			}	
 		}
-	}
-
-	/** This part code may not excute, just for low power use api */
-	// k_sem_take(&modem_shutdown_sem, K_FOREVER);
-	// err = nrf_modem_lib_shutdown();
-	// if (err) {
-	// 	return -1;
-	// }	
+	}	
 
 	return 0;
 }
