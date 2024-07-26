@@ -15,7 +15,7 @@
 #include "app.h"
 
 
-#define FW_VERSION			"1.2.5"
+#define FW_VERSION			"1.2.8"
 
 #define UDP_IP_HEADER_SIZE 	28
 
@@ -43,6 +43,16 @@ static void socket_transmission_work_fn(struct k_work *work)
 	{
 		memset(send_buffer.data,data_upload_iterations,256);		//just test
 		send_buffer.length = 256;
+
+		if(0 == k_msgq_num_free_get(&tx_send_queue))
+		{
+			/* message queue is full ,we have to delete the oldest data to reserve room for the new data */
+			socket_data_t data_buffer = {0};
+			k_msgq_get(&tx_send_queue, &data_buffer, K_NO_WAIT);
+			printf("Droped data:[%d]:%d-%d-%d\n",data_buffer.length, data_buffer.data[1],data_buffer.data[2],data_buffer.data[3]);
+			k_free(data_buffer.data);
+		}
+
 		/** send the uart data to tcp server*/
 		err = k_msgq_put(&tx_send_queue, &send_buffer, K_NO_WAIT);
 		if (err) {
@@ -139,6 +149,8 @@ static void lte_handler(const struct lte_lc_evt *const evt)
 		       evt->nw_reg_status == LTE_LC_NW_REG_REGISTERED_HOME ?
 		       "Connected - home" : "Connected - roaming");
 		k_sem_give(&lte_connected_sem);
+
+		k_work_schedule(&socket_transmission_work, K_SECONDS(5));
 		break;
 	case LTE_LC_EVT_PSM_UPDATE:
 		printk("PSM parameter update: TAU: %d s, Active time: %d s\n",
@@ -192,8 +204,7 @@ static void modem_connect(void)
 	int ret = 0;
 
 	do {
-		printk("Connecting to network.");
-		printk("This may take several minutes.");
+		printk("\nConnecting to network.This may take several minutes.\n");
 
 		ret = lte_lc_connect();
 		if (ret < 0) {
@@ -206,12 +217,13 @@ static void modem_connect(void)
 
 			lte_lc_lte_mode_get(&mode);
 			if (mode == LTE_LC_LTE_MODE_NBIOT) {
-				printk("Connected to NB-IoT network");
+				printk("Connected to NB-IoT network.\n");
 			} else if (mode == LTE_LC_LTE_MODE_LTEM) {
-				printk("Connected to LTE network");
+				printk("Connected to LTE network.\n");
 			} else  {
-				printk("Connected to unknown network");
+				printk("Connected to unknown network.\n");
 			}
+			k_sem_give(&lte_connected_sem);
 		}
 	} while (ret < 0);
 }
@@ -236,9 +248,7 @@ int main(void)
 		printk("Failed to connect to LTE network, error: %d\n", err);
 		return -1;
 	}
-
-	k_work_schedule(&socket_transmission_work, K_NO_WAIT);
-
+	
 	while (true) 
 	{
 		/* Set network state to start for blocking LTE */
@@ -256,14 +266,21 @@ int main(void)
 		}
 
 		/** This part code may not excute, just for low power use api */
-		k_sem_take(&modem_shutdown_sem, K_SECONDS(2));
-		err = nrf_modem_lib_shutdown();
-		if (err) {
-			return -1;
-		}	
+		if( 0 == k_sem_take(&modem_shutdown_sem, K_SECONDS(2)))
+		{
+			err = nrf_modem_lib_shutdown();
+			if (err) {
+				return -1;
+			}	
+		}
 	}
 
-	
+	/** This part code may not excute, just for low power use api */
+	// k_sem_take(&modem_shutdown_sem, K_FOREVER);
+	// err = nrf_modem_lib_shutdown();
+	// if (err) {
+	// 	return -1;
+	// }	
 
 	return 0;
 }

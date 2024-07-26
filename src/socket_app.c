@@ -107,9 +107,9 @@ static void tcp_thread_fn(void)
 	uint8_t rec_buf[512] = {0};  /* For socket receive data. */
 	
 	k_sem_take(&lte_connected_sem, K_FOREVER);
-	printf("LTE connected successfully, now we start tcp task!!!\n");
 
 retry:
+	LOG_WRN("LTE connected successfully, now we start tcp task!!!\n");
 
 #if !defined(USE_IPV6)
 	struct sockaddr_in server_addr = {0};
@@ -147,7 +147,6 @@ retry:
 	}
 #endif
 	
-
 	fds[0].fd = client_socket;
 	fds[0].events = POLLIN;
 	event_fd = eventfd(0, 0);
