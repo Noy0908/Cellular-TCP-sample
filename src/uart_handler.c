@@ -18,7 +18,7 @@ LOG_MODULE_REGISTER(uart_handler, CONFIG_TCP_LOG_LEVEL);
 #include "app.h"
 
 
-#define UART_RX_TIMEOUT_US					10000
+#define UART_RX_TIMEOUT_US					50000
 #define UART_ERROR_DELAY_MS					500
 #define UART_RX_EVENT_COUNT_FOR_BUF 		20
 
@@ -167,13 +167,15 @@ static void rx_process(struct k_work *work)
 	struct rx_event_t rx_event;
 
 	// while (k_msgq_get(&rx_event_queue, &rx_event, K_NO_WAIT) == 0) {
-	// 	// slm_at_receive(rx_event.buf, rx_event.len);
+	// 	LOG_INF("Uart received:[%d]:%s\n",rx_event.len, rx_event.buf);
+		
 	// 	k_free(rx_event.buf);
-	// 	rx_buf_unref(rx_event.buf);
+	// 	// rx_buf_unref(rx_event.buf);
 	// }
 	if (k_msgq_peek(&rx_event_queue, &rx_event) == 0)  
 	{
-		LOG_INF("Uart received:[%d]:%s\n",rx_event.len, rx_event.buf);
+		// LOG_INF("Uart received:[%d]:%s\n",rx_event.len, rx_event.buf);
+		uart_tx_write(rx_event.buf, rx_event.len);		//test the uart write api
 	}
 
 	rx_recovery();
@@ -197,6 +199,10 @@ static int tx_start(void)
 		LOG_ERR("UART TX error: %d", err);
 		ring_buf_get_finish(&tx_buf, 0);
 		return err;
+	}
+	else
+	{
+		LOG_ERR("UART TX [%d] bytes Succeed!", len);
 	}
 
 	return 0;
@@ -228,7 +234,8 @@ static void uart_callback(const struct device *dev, struct uart_event *evt, void
 	case UART_RX_RDY:
 		rx_buf_ref(evt->data.rx.buf);	
 		/** send the rx data to message queue */
-		rx_event.buf = k_malloc(evt->data.rx.len);
+		// rx_event.buf = k_malloc(evt->data.rx.len+1);
+		rx_event.buf = k_calloc(evt->data.rx.len, sizeof(uint8_t));
 		if (rx_event.buf != NULL) 
 		{
 			memcpy(rx_event.buf,&evt->data.rx.buf[evt->data.rx.offset],evt->data.rx.len);		//just test
@@ -396,7 +403,7 @@ int uart_handler_init(void)
 	k_sem_give(&tx_done_sem);
 
 	/* Flush possibly pending data in case app was idle. */
-	tx_start();
+	// tx_start();
 
 	return 0;
 }

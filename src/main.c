@@ -15,7 +15,7 @@
 #include "app.h"
 
 
-#define FW_VERSION			"1.3.4"
+#define FW_VERSION			"1.4.5"
 
 #define UDP_IP_HEADER_SIZE 	28
 

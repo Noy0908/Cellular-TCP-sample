@@ -117,7 +117,7 @@ retry:
 		}
 		else if (ret == 0) {
 			/* timeout */
-			LOG_INF("TCP wait for poll event timeout at %lld.\n",k_ticks_to_ms_floor64(k_uptime_ticks()));
+			// LOG_INF("TCP wait for poll event timeout at %lld.\n",k_ticks_to_ms_floor64(k_uptime_ticks()));
 			// continue;
 		}
 		else{
@@ -166,6 +166,8 @@ retry:
 			// 		}
 			// 	}
 			// }
+
+
 			struct rx_event_t rx_event;
 			if (k_msgq_peek(&rx_event_queue, &rx_event) == 0)  
 			{
@@ -176,7 +178,7 @@ retry:
 					/* send successfully, delete the queue message and free memory */
 					k_msgq_get(&rx_event_queue, &rx_event, K_NO_WAIT);
 					k_free(rx_event.buf);
-					LOG_WRN("Socket send [%d] successfully , the data is: %s\n",ret, rx_event.buf);
+					LOG_WRN("Socket send [%d] successfully , the data is: \"%s\"\n",ret, rx_event.buf);
 				}
 			}
 		}
