@@ -8,10 +8,10 @@
 #define __APP_H_
 
 
-typedef struct {
-	uint8_t *data;
-	uint16_t length;
-} socket_data_t;
+// typedef struct {
+// 	uint8_t *data;
+// 	uint16_t length;
+// } socket_data_t;
 
 
 struct rx_event_t {

@@ -46,7 +46,7 @@ static int do_tcp_send(int sock, const uint8_t *data, int datalen)
 		}
 	}
 
-	return offset;
+	return ret;
 }
 
 
@@ -77,6 +77,16 @@ retry:
 		printf("error: socket(AF_INET): %d\n", errno);
 		goto error_exit;
 	}
+	struct timeval socket_timeout = {.tv_sec = 3};
+
+	ret = setsockopt(client_socket, SOL_SOCKET, SO_SNDTIMEO, &socket_timeout, sizeof(socket_timeout));
+	if (ret) {
+		LOG_ERR("setsockopt(%d) error: %d", SO_SNDTIMEO, -errno);
+		ret = -errno;
+		goto error_exit;
+	}
+
+	
 	server_addr.sin_family = AF_INET;
 	server_addr.sin_port = htons(CONFIG_TCP_SERVER_PORT);
 	inet_pton(AF_INET, CONFIG_TCP_SERVER_ADDRESS_STATIC,&server_addr.sin_addr);
@@ -118,7 +128,6 @@ retry:
 		else if (ret == 0) {
 			/* timeout */
 			// LOG_INF("TCP wait for poll event timeout at %lld.\n",k_ticks_to_ms_floor64(k_uptime_ticks()));
-			// continue;
 		}
 		else{
 			// LOG_DBG("[%d]sock events 0x%08x at %lld.\n", ret,fds[0].revents,k_ticks_to_ms_floor64(k_uptime_ticks()));
@@ -151,23 +160,7 @@ retry:
 
 		/***************** Events to send message queue. *****************************/
 		{
-			// socket_data_t data_buffer = {0};
-			// if (k_msgq_peek(&tx_send_queue, &data_buffer) == 0) 
-			// {
-			// 	LOG_INF("[%d]:%d-%d-%d\n",data_buffer.length, data_buffer.data[1],data_buffer.data[2],data_buffer.data[3]);
-			// 	ret = do_tcp_send(client_socket, data_buffer.data, data_buffer.length);
-			// 	{
-			// 		if(ret == data_buffer.length)
-			// 		{
-			// 			/* send successfully, delete the queue message and free memory */
-			// 			k_msgq_get(&tx_send_queue, &data_buffer, K_NO_WAIT);
-			// 			k_free(data_buffer.data);
-			// 			LOG_WRN("Socket send [%d] successfully , the length is %d!\n",data_buffer.data[1],ret);
-			// 		}
-			// 	}
-			// }
-
-
+			static uint8_t resend_count = 0;
 			struct rx_event_t rx_event;
 			if (k_msgq_peek(&rx_event_queue, &rx_event) == 0)  
 			{
@@ -178,7 +171,16 @@ retry:
 					/* send successfully, delete the queue message and free memory */
 					k_msgq_get(&rx_event_queue, &rx_event, K_NO_WAIT);
 					k_free(rx_event.buf);
-					LOG_WRN("Socket send [%d] successfully , the data is: \"%s\"\n",ret, rx_event.buf);
+					resend_count = 0;
+					printk("Socket send [%d] successfully , the data is: \"%s\"\n",ret, rx_event.buf);
+				}
+				else if(ret <= 0)
+				{
+					if(resend_count++ >= 3)
+					{
+						LOG_WRN("Socket has something wrong, we'd better reconnect it.\n");
+						break;
+					}
 				}
 			}
 		}

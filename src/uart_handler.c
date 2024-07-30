@@ -172,11 +172,11 @@ static void rx_process(struct k_work *work)
 	// 	k_free(rx_event.buf);
 	// 	// rx_buf_unref(rx_event.buf);
 	// }
-	if (k_msgq_peek(&rx_event_queue, &rx_event) == 0)  
-	{
-		// LOG_INF("Uart received:[%d]:%s\n",rx_event.len, rx_event.buf);
-		uart_tx_write(rx_event.buf, rx_event.len);		//test the uart write api
-	}
+	// if (k_msgq_peek(&rx_event_queue, &rx_event) == 0)  
+	// {
+	// 	// LOG_INF("Uart received:[%d]:%s\n",rx_event.len, rx_event.buf);
+	// 	uart_tx_write(rx_event.buf, rx_event.len);		//test the uart write api
+	// }
 
 	rx_recovery();
 }
@@ -227,15 +227,14 @@ static void uart_callback(const struct device *dev, struct uart_event *evt, void
 		}
 		if (ring_buf_is_empty(&tx_buf) == false) {
 			tx_start();
-		} else {
-			k_sem_give(&tx_done_sem);
-		}
+		} 
+		
+		k_sem_give(&tx_done_sem);
 		break;
 	case UART_RX_RDY:
 		rx_buf_ref(evt->data.rx.buf);	
 		/** send the rx data to message queue */
-		// rx_event.buf = k_malloc(evt->data.rx.len+1);
-		rx_event.buf = k_calloc(evt->data.rx.len, sizeof(uint8_t));
+		rx_event.buf = k_calloc(evt->data.rx.len+1, sizeof(uint8_t));
 		if (rx_event.buf != NULL) 
 		{
 			memcpy(rx_event.buf,&evt->data.rx.buf[evt->data.rx.offset],evt->data.rx.len);		//just test
@@ -263,23 +262,10 @@ static void uart_callback(const struct device *dev, struct uart_event *evt, void
 			LOG_ERR("Memory not allocated!\n");
 		}
 		
-		// rx_event.buf = &evt->data.rx.buf[evt->data.rx.offset];
-		// rx_event.len = evt->data.rx.len;
-		// err = k_msgq_put(&rx_event_queue, &rx_event, K_NO_WAIT);
-		// if (err) {
-		// 	LOG_ERR("UART_RX_RDY failure: %d, dropped: %d", err, evt->data.rx.len);
-		// 	rx_buf_unref(evt->data.rx.buf);
-		// 	break;
-		// }
 		rx_buf_unref(evt->data.rx.buf);
 		(void)k_work_submit((struct k_work *)&rx_process_work);
 		break;
 	case UART_RX_BUF_REQUEST:
-		// if (k_msgq_num_free_get(&rx_event_queue) < UART_RX_EVENT_COUNT_FOR_BUF) {
-		// 	LOG_WRN("Disabling UART RX: No event space.");
-		// 	break;
-		// }
-
 		buf = rx_buf_alloc();
 		if (!buf) {
 			LOG_WRN("Disabling UART RX: No free buffers.");
@@ -401,9 +387,6 @@ int uart_handler_init(void)
 	k_work_init_delayable(&rx_process_work, rx_process);
 
 	k_sem_give(&tx_done_sem);
-
-	/* Flush possibly pending data in case app was idle. */
-	// tx_start();
 
 	return 0;
 }

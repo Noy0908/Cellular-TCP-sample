@@ -15,20 +15,21 @@
 #include "app.h"
 
 
-#define FW_VERSION			"1.4.5"
+#define FW_VERSION			"1.4.7"
 
-#define UDP_IP_HEADER_SIZE 	28
 
 #define TX_QUEUE_COUNT		20
-
-static struct k_work_delayable socket_transmission_work;
-static int data_upload_iterations = CONFIG_TCP_DATA_UPLOAD_ITERATIONS;
 
 
 K_SEM_DEFINE(lte_connected_sem, 0, 1);
 K_SEM_DEFINE(modem_shutdown_sem, 0, 1);
 
+
+/** Below code can be work as a timer */
+#if 0
 K_MSGQ_DEFINE(tx_send_queue, sizeof(socket_data_t), TX_QUEUE_COUNT, 4);
+static struct k_work_delayable socket_transmission_work;
+static int data_upload_iterations = CONFIG_TCP_DATA_UPLOAD_ITERATIONS;
 
 static void socket_transmission_work_fn(struct k_work *work)
 {
@@ -80,10 +81,13 @@ static void socket_transmission_work_fn(struct k_work *work)
 			K_SECONDS(CONFIG_TCP_DATA_UPLOAD_FREQUENCY_SECONDS));
 }
 
+
 static void work_init(void)
 {
 	k_work_init_delayable(&socket_transmission_work, socket_transmission_work_fn);
 }
+
+#endif
 
 static void lte_handler(const struct lte_lc_evt *const evt)
 {
