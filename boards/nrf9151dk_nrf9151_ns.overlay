@@ -4,6 +4,42 @@
  * SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
  */
 //  / {
+// 	chosen {
+// 		ncs,slm-uart = &uart2;
+// 	};
+// };
+
+&uart2 {
+	current-speed = <115200>;
+	status = "okay";
+	pinctrl-0 = <&uart2_default_alt>; /* <&interface_to_nrf52840 1 0> */
+	pinctrl-1 = <&uart2_sleep_alt>; /* <&interface_to_nrf52840 0 0> */
+	pinctrl-names = "default", "sleep";
+};
+
+&pinctrl {
+	uart2_default_alt: uart2_default_alt {
+		group1 {
+			psels = <NRF_PSEL(UART_RX, 0, 17)>,
+				<NRF_PSEL(UART_TX, 0, 18)>;
+		};
+	};
+
+	uart2_sleep_alt: uart2_sleep_alt {
+		group1 {
+			psels = <NRF_PSEL(UART_RX, 0, 17)>,
+				<NRF_PSEL(UART_TX, 0, 18)>;
+			low-power-enable;
+		};
+	};
+};
+
+
+
+
+
+
+//  / {
 // 	sensor_sim: sensor-sim {
 // 		compatible = "nordic,sensor-sim";
 // 		status = "okay";
@@ -46,6 +82,45 @@
 // &led0 {
 // 	gpios = <&gpio0 2 0>;
 // };
+
+
+
+// &uart2 {
+// 	current-speed = <1000000>;
+// 	status = "okay";
+// 	pinctrl-0 = <&uart2_default_alt>; /* <&interface_to_nrf52840 1 0> */
+// 	pinctrl-1 = <&uart2_sleep_alt>; /* <&interface_to_nrf52840 0 0> */
+// 	pinctrl-names = "default", "sleep";
+
+// 	lpuart: nrf-sw-lpuart {
+// 		compatible = "nordic,nrf-sw-lpuart";
+// 		status = "okay";
+// 		req-pin = <21>; /* <&interface_to_nrf52840 3 0>; */
+// 		rdy-pin = <19>; /* <&interface_to_nrf52840 2 0>; */
+// 	};
+// };
+
+// &pinctrl {
+// 	uart2_default_alt: uart2_default_alt {
+// 		group1 {
+// 			psels = <NRF_PSEL(UART_RX, 0, 17)>,
+// 				<NRF_PSEL(UART_TX, 0, 18)>;
+// 		};
+// 	};
+
+// 	uart2_sleep_alt: uart2_sleep_alt {
+// 		group1 {
+// 			psels = <NRF_PSEL(UART_RX, 0, 17)>,
+// 				<NRF_PSEL(UART_TX, 0, 18)>;
+// 			low-power-enable;
+// 		};
+// 	};
+// };
+
+
+
+
+
 
 
 

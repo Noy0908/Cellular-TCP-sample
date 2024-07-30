@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <zephyr/kernel.h>
 #include <zephyr/net/socket.h>
+#include <zephyr/drivers/uart.h>
 #include <modem/lte_lc.h>
 #include <modem/nrf_modem_lib.h>
 #include <nrf_modem_at.h>
@@ -14,7 +15,7 @@
 #include "app.h"
 
 
-#define FW_VERSION			"1.3.1"
+#define FW_VERSION			"1.3.4"
 
 #define UDP_IP_HEADER_SIZE 	28
 
@@ -98,7 +99,7 @@ static void lte_handler(const struct lte_lc_evt *const evt)
 		       "Connected - home" : "Connected - roaming");
 		k_sem_give(&lte_connected_sem);
 
-		k_work_schedule(&socket_transmission_work, K_SECONDS(5));
+		// k_work_schedule(&socket_transmission_work, K_SECONDS(5));
 		break;
 	case LTE_LC_EVT_PSM_UPDATE:
 		printk("PSM parameter update: TAU: %d s, Active time: %d s\n",
@@ -158,7 +159,7 @@ int main(void)
 
 	printk("\nTCP sample has started, version is %s.\n\n",FW_VERSION);
 
-	work_init();
+	// work_init();
 
 	err = nrf_modem_lib_init();
 	if (err) {
@@ -171,6 +172,8 @@ int main(void)
 		printk("Failed to connect to LTE network, error: %d\n", err);
 		return -1;
 	}
+
+	uart_handler_init();
 	
 	while (true) 
 	{
@@ -191,6 +194,9 @@ int main(void)
 		/** This part code may not excute, just for low power use api */
 		if( 0 == k_sem_take(&modem_shutdown_sem, K_SECONDS(2)))
 		{
+			/** we should suspend the tcp thread */
+			// k_thread_suspend(tcp_thread);
+
 			err = nrf_modem_lib_shutdown();
 			if (err) {
 				return -1;

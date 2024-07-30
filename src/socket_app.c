@@ -109,7 +109,8 @@ retry:
 	fds[0].events = POLLIN;
 
 	while (1) {
-		ret = poll(fds, ARRAY_SIZE(fds), MSEC_PER_SEC * CONFIG_TCP_POLL_TIME);
+		// ret = poll(fds, ARRAY_SIZE(fds), MSEC_PER_SEC * CONFIG_TCP_POLL_TIME);
+		ret = poll(fds, ARRAY_SIZE(fds), 200);
 		if (ret < 0) {
 			LOG_WRN("poll() error: %d", ret);
 			break;
@@ -120,7 +121,7 @@ retry:
 			// continue;
 		}
 		else{
-			LOG_DBG("[%d]sock events 0x%08x", ret,fds[0].revents);
+			// LOG_DBG("[%d]sock events 0x%08x at %lld.\n", ret,fds[0].revents,k_ticks_to_ms_floor64(k_uptime_ticks()));
 			if ((fds[0].revents & POLLIN) != 0) {
 				/* receive data from server */
 				ret = recv(fds[0].fd, (void *)rec_buf, sizeof(rec_buf), MSG_DONTWAIT);
@@ -150,19 +151,32 @@ retry:
 
 		/***************** Events to send message queue. *****************************/
 		{
-			socket_data_t data_buffer = {0};
-			if (k_msgq_peek(&tx_send_queue, &data_buffer) == 0) 
+			// socket_data_t data_buffer = {0};
+			// if (k_msgq_peek(&tx_send_queue, &data_buffer) == 0) 
+			// {
+			// 	LOG_INF("[%d]:%d-%d-%d\n",data_buffer.length, data_buffer.data[1],data_buffer.data[2],data_buffer.data[3]);
+			// 	ret = do_tcp_send(client_socket, data_buffer.data, data_buffer.length);
+			// 	{
+			// 		if(ret == data_buffer.length)
+			// 		{
+			// 			/* send successfully, delete the queue message and free memory */
+			// 			k_msgq_get(&tx_send_queue, &data_buffer, K_NO_WAIT);
+			// 			k_free(data_buffer.data);
+			// 			LOG_WRN("Socket send [%d] successfully , the length is %d!\n",data_buffer.data[1],ret);
+			// 		}
+			// 	}
+			// }
+			struct rx_event_t rx_event;
+			if (k_msgq_peek(&rx_event_queue, &rx_event) == 0)  
 			{
-				LOG_INF("[%d]:%d-%d-%d\n",data_buffer.length, data_buffer.data[1],data_buffer.data[2],data_buffer.data[3]);
-				ret = do_tcp_send(client_socket, data_buffer.data, data_buffer.length);
+				// LOG_INF("[%d]:%d\n",rx_event.len, rx_event.buf[0]);
+				ret = do_tcp_send(client_socket, rx_event.buf, rx_event.len);
+				if(ret == rx_event.len)
 				{
-					if(ret == data_buffer.length)
-					{
-						/* send successfully, delete the queue message and free memory */
-						k_msgq_get(&tx_send_queue, &data_buffer, K_NO_WAIT);
-						k_free(data_buffer.data);
-						LOG_WRN("Socket send [%d] successfully , the length is %d!\n",data_buffer.data[1],ret);
-					}
+					/* send successfully, delete the queue message and free memory */
+					k_msgq_get(&rx_event_queue, &rx_event, K_NO_WAIT);
+					k_free(rx_event.buf);
+					LOG_WRN("Socket send [%d] successfully , the data is: %s\n",ret, rx_event.buf);
 				}
 			}
 		}

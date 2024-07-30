@@ -1,0 +1,6 @@
+{
+    "iis.configDir": "",
+    "files.associations": {
+        "string_view": "c"
+    }
+}
