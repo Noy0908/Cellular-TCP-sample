@@ -205,6 +205,17 @@ static void on_packet_received(uint8_t *buffer, uint16_t length)
 }
 
 
+/** Before uart send data, the data should be enpacket by SLIP protocol */
+static void uart_send_data(uint8_t *buffer, uint16_t length)
+{
+	static uint8_t send_buffer[UART_SLIP_MTU] = {0};
+	uint32_t send_length = 0;
+
+	slip_encode(send_buffer, buffer, length, &send_length);
+	uart_tx_write(send_buffer, send_length);
+}
+
+
 static void rx_process(struct k_work *work)
 {
 	uint16_t i = 0;
@@ -222,6 +233,7 @@ static void rx_process(struct k_work *work)
 			case NRF_SUCCESS:
 				/** decode uart data success, now put it to message queue */
 				on_packet_received(m_slip.p_buffer, m_slip.current_index);
+				uart_send_data(m_slip.p_buffer, m_slip.current_index);		//uart send back the received data with lwip protocal, just for test
 				
 				memset(m_slip.p_buffer, 0, m_slip.buffer_len);
 				m_slip.current_index = 0;
