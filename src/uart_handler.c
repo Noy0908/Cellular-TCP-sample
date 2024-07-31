@@ -14,13 +14,15 @@
 
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(uart_handler, CONFIG_TCP_LOG_LEVEL);
-
+#include "slip/slip.h"
 #include "app.h"
 
 
 #define UART_RX_TIMEOUT_US					50000
 #define UART_ERROR_DELAY_MS					500
 #define UART_RX_EVENT_COUNT_FOR_BUF 		20
+
+#define UART_SLIP_MTU						512
 
 #define UART_SLAB_BLOCK_SIZE 				sizeof(struct rx_buf_t)
 #define UART_SLAB_BLOCK_COUNT 				3
@@ -46,11 +48,18 @@ enum uart_recovery_state {
 
 static atomic_t recovery_state;
 
+static uint8_t slip_buffer[UART_SLIP_MTU];
+static slip_t m_slip = {
+	.state = SLIP_STATE_DECODING, 
+	.p_buffer = slip_buffer,
+	.current_index = 0,
+	.buffer_len = sizeof(slip_buffer)};
+
 K_MEM_SLAB_DEFINE(rx_slab, UART_SLAB_BLOCK_SIZE, UART_SLAB_BLOCK_COUNT, 4);
 
 K_SEM_DEFINE(tx_done_sem, 0, 1);
 
-K_MSGQ_DEFINE(rx_event_queue, sizeof(struct rx_event_t), UART_RX_EVENT_COUNT_FOR_BUF, 4);
+K_MSGQ_DEFINE(rx_event_queue, sizeof(struct rx_event_t), 8, 4);
 
 RING_BUF_DECLARE(tx_buf, 256);
 
@@ -162,16 +171,74 @@ static void rx_recovery(void)
 }
 
 
+static void on_packet_received(uint8_t *buffer, uint16_t length)
+{
+	int err;
+	socket_data_t send_buffer = {0};
+	
+	send_buffer.data = k_calloc(length+1, sizeof(uint8_t));
+	if (send_buffer.data != NULL) 
+	{
+		memcpy(send_buffer.data, buffer, length);		
+		send_buffer.length = length;
+
+		if(0 == k_msgq_num_free_get(&tx_send_queue))
+		{
+			/* message queue is full ,we have to delete the oldest data to reserve room for the new data */
+			socket_data_t data_buffer = {0};
+			k_msgq_get(&tx_send_queue, &data_buffer, K_NO_WAIT);
+			LOG_DBG("Droped data:[%d]:%s\n",data_buffer.length, data_buffer.data);
+			k_free(data_buffer.data);
+		}
+
+		/** send the uart data to tcp server*/
+		err = k_msgq_put(&tx_send_queue, &send_buffer, K_NO_WAIT);
+		if (err) {
+			LOG_ERR("Message sent error: %d", err);
+			k_free(send_buffer.data);
+		}
+	} 
+	else 
+	{
+		LOG_ERR("Memory not allocated!\n");
+	}
+}
+
+
 static void rx_process(struct k_work *work)
 {
+	uint16_t i = 0;
 	struct rx_event_t rx_event;
+	int ret_code = 0;
 
-	// while (k_msgq_get(&rx_event_queue, &rx_event, K_NO_WAIT) == 0) {
-	// 	LOG_INF("Uart received:[%d]:%s\n",rx_event.len, rx_event.buf);
-		
-	// 	k_free(rx_event.buf);
-	// 	// rx_buf_unref(rx_event.buf);
-	// }
+	while (k_msgq_get(&rx_event_queue, &rx_event, K_NO_WAIT) == 0) 
+	{
+		// LOG_INF("Uart received:[%d]:%s\n",rx_event.len, rx_event.buf);
+		for(i=0; i<rx_event.len; i++)
+		{
+			ret_code = slip_decode_add_byte(&m_slip, rx_event.buf[i]);
+			switch (ret_code)
+			{
+			case NRF_SUCCESS:
+				/** decode uart data success, now put it to message queue */
+				on_packet_received(m_slip.p_buffer, m_slip.current_index);
+				
+				memset(m_slip.p_buffer, 0, m_slip.buffer_len);
+				m_slip.current_index = 0;
+        		m_slip.state = SLIP_STATE_DECODING;
+				break;
+			// fall through
+			case ERROR_NO_MEM:
+				m_slip.current_index = 0;
+				m_slip.state = SLIP_STATE_DECODING;
+				break;
+			default:
+				break;
+			}
+		}
+		// k_free(rx_event.buf);
+		rx_buf_unref(rx_event.buf);
+	}
 	// if (k_msgq_peek(&rx_event_queue, &rx_event) == 0)  
 	// {
 	// 	// LOG_INF("Uart received:[%d]:%s\n",rx_event.len, rx_event.buf);
@@ -234,35 +301,42 @@ static void uart_callback(const struct device *dev, struct uart_event *evt, void
 	case UART_RX_RDY:
 		rx_buf_ref(evt->data.rx.buf);	
 		/** send the rx data to message queue */
-		rx_event.buf = k_calloc(evt->data.rx.len+1, sizeof(uint8_t));
-		if (rx_event.buf != NULL) 
-		{
-			memcpy(rx_event.buf,&evt->data.rx.buf[evt->data.rx.offset],evt->data.rx.len);		//just test
-			rx_event.len = evt->data.rx.len;
-			if(0 == k_msgq_num_free_get(&rx_event_queue))
-			{
-				/* message queue is full ,we have to delete the oldest data to reserve room for the new data */
-				struct rx_event_t oldest_event;
-				k_msgq_get(&rx_event_queue, &oldest_event, K_NO_WAIT);
-				LOG_INF("Droped data:[%d]:%s\n",oldest_event.len, oldest_event.buf);
-				k_free(oldest_event.buf);
-			}
+		// rx_event.buf = k_calloc(evt->data.rx.len+1, sizeof(uint8_t));
+		// if (rx_event.buf != NULL) 
+		// {
+		// 	memcpy(rx_event.buf,&evt->data.rx.buf[evt->data.rx.offset],evt->data.rx.len);		//just test
+		// 	rx_event.len = evt->data.rx.len;
+		// 	if(0 == k_msgq_num_free_get(&rx_event_queue))
+		// 	{
+		// 		/* message queue is full ,we have to delete the oldest data to reserve room for the new data */
+		// 		struct rx_event_t oldest_event;
+		// 		k_msgq_get(&rx_event_queue, &oldest_event, K_NO_WAIT);
+		// 		LOG_INF("Droped data:[%d]:%s\n",oldest_event.len, oldest_event.buf);
+		// 		k_free(oldest_event.buf);
+		// 	}
 
-			/** send the uart data to tcp server*/
-			err = k_msgq_put(&rx_event_queue, &rx_event, K_NO_WAIT);
-			if (err) {
-				LOG_ERR("UART_RX_RDY failure: %d, dropped: %d", err, evt->data.rx.len);
-				rx_buf_unref(evt->data.rx.buf);
-				k_free(rx_event.buf);
-				break;
-			}
-		} 
-		else 
-		{
-			LOG_ERR("Memory not allocated!\n");
-		}
+		// 	/** send the uart data to tcp server*/
+		// 	err = k_msgq_put(&rx_event_queue, &rx_event, K_NO_WAIT);
+		// 	if (err) {
+		// 		LOG_ERR("UART_RX_RDY failure: %d, dropped: %d", err, evt->data.rx.len);
+		// 		rx_buf_unref(evt->data.rx.buf);
+		// 		k_free(rx_event.buf);
+		// 		break;
+		// 	}
+		// } 
+		// else 
+		// {
+		// 	LOG_ERR("Memory not allocated!\n");
+		// }
 		
-		rx_buf_unref(evt->data.rx.buf);
+		rx_event.buf = &evt->data.rx.buf[evt->data.rx.offset];
+		rx_event.len = evt->data.rx.len;
+		err = k_msgq_put(&rx_event_queue, &rx_event, K_NO_WAIT);
+		if (err) {
+			LOG_ERR("UART_RX_RDY failure: %d, dropped: %d", err, evt->data.rx.len);
+			rx_buf_unref(evt->data.rx.buf);
+			break;
+		}
 		(void)k_work_submit((struct k_work *)&rx_process_work);
 		break;
 	case UART_RX_BUF_REQUEST:

@@ -23,8 +23,10 @@ LOG_MODULE_REGISTER(tcp_sample, CONFIG_TCP_LOG_LEVEL);
 #define TCP_THREAD_STACK_SIZE               4096
 #define TCP_THREAD_PRIORITY 				5
 
+#define TX_QUEUE_COUNT						20
 
-#define BIND_PORT 	4242
+
+K_MSGQ_DEFINE(tx_send_queue, sizeof(socket_data_t), TX_QUEUE_COUNT, 4);
 
 bool reconnect = false;
 
@@ -161,18 +163,18 @@ retry:
 		/***************** Events to send message queue. *****************************/
 		{
 			static uint8_t resend_count = 0;
-			struct rx_event_t rx_event;
-			if (k_msgq_peek(&rx_event_queue, &rx_event) == 0)  
+			socket_data_t send_packet = {0};
+			if (k_msgq_peek(&tx_send_queue, &send_packet) == 0)  
 			{
-				// LOG_INF("[%d]:%d\n",rx_event.len, rx_event.buf[0]);
-				ret = do_tcp_send(client_socket, rx_event.buf, rx_event.len);
-				if(ret == rx_event.len)
+				// LOG_INF("[%d]:%s\n",send_packet.length, send_packet.data);
+				ret = do_tcp_send(client_socket, send_packet.data, send_packet.length);
+				if(ret == send_packet.length)
 				{
 					/* send successfully, delete the queue message and free memory */
-					k_msgq_get(&rx_event_queue, &rx_event, K_NO_WAIT);
-					k_free(rx_event.buf);
+					k_msgq_get(&tx_send_queue, &send_packet, K_NO_WAIT);
+					k_free(send_packet.data);
 					resend_count = 0;
-					printk("Socket send [%d] successfully , the data is: \"%s\"\n",ret, rx_event.buf);
+					LOG_DBG("Socket send [%d] successfully , the data is: \"%s\"\n",ret, send_packet.data);
 				}
 				else if(ret <= 0)
 				{

@@ -15,10 +15,7 @@
 #include "app.h"
 
 
-#define FW_VERSION			"1.4.7"
-
-
-#define TX_QUEUE_COUNT		20
+#define FW_VERSION			"1.4.8"
 
 
 K_SEM_DEFINE(lte_connected_sem, 0, 1);
@@ -27,7 +24,7 @@ K_SEM_DEFINE(modem_shutdown_sem, 0, 1);
 
 /** Below code can be work as a timer */
 #if 0
-K_MSGQ_DEFINE(tx_send_queue, sizeof(socket_data_t), TX_QUEUE_COUNT, 4);
+
 static struct k_work_delayable socket_transmission_work;
 static int data_upload_iterations = CONFIG_TCP_DATA_UPLOAD_ITERATIONS;
 
