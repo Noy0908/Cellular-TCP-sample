@@ -14,12 +14,6 @@ typedef struct {
 } socket_data_t;
 
 
-struct rx_event_t {
-	uint8_t *buf;
-	size_t len;
-};
-
-
 extern const k_tid_t tcp_thread; 
 
 extern struct k_sem lte_connected_sem;

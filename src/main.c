@@ -15,7 +15,7 @@
 #include "app.h"
 
 
-#define FW_VERSION			"1.4.8"
+#define FW_VERSION			"1.0.0"
 
 
 K_SEM_DEFINE(lte_connected_sem, 0, 1);
@@ -30,36 +30,6 @@ static int data_upload_iterations = CONFIG_TCP_DATA_UPLOAD_ITERATIONS;
 
 static void socket_transmission_work_fn(struct k_work *work)
 {
-	int err;
-	socket_data_t send_buffer = {0};
-	// char *send_buffer = NULL;
-	
-	send_buffer.data = k_malloc(256);
-	if (send_buffer.data != NULL) 
-	{
-		memset(send_buffer.data,data_upload_iterations,256);		//just test
-		send_buffer.length = 256;
-
-		if(0 == k_msgq_num_free_get(&tx_send_queue))
-		{
-			/* message queue is full ,we have to delete the oldest data to reserve room for the new data */
-			socket_data_t data_buffer = {0};
-			k_msgq_get(&tx_send_queue, &data_buffer, K_NO_WAIT);
-			printf("Droped data:[%d]:%d-%d-%d\n",data_buffer.length, data_buffer.data[1],data_buffer.data[2],data_buffer.data[3]);
-			k_free(data_buffer.data);
-		}
-
-		/** send the uart data to tcp server*/
-		err = k_msgq_put(&tx_send_queue, &send_buffer, K_NO_WAIT);
-		if (err) {
-			printf("Message sent error: %d", err);
-		}
-	} 
-	else 
-	{
-		printf("Memory not allocated!\n");
-	}
-
 	printk("socket_transmission_work_fn[%d] been triggeded at %lld,\r\n ",data_upload_iterations,k_ticks_to_ms_floor64(k_uptime_ticks()));
 
 	/* Transmit a limited number of times and then shutdown. */

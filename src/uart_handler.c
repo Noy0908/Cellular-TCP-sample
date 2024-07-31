@@ -39,6 +39,10 @@ struct rx_buf_t {
 	uint8_t buf[512];
 };
 
+struct rx_event_t {
+	uint8_t *buf;
+	size_t len;
+};
 
 enum uart_recovery_state {
 	RECOVERY_IDLE,
@@ -248,14 +252,9 @@ static void rx_process(struct k_work *work)
 				break;
 			}
 		}
-		// k_free(rx_event.buf);
+
 		rx_buf_unref(rx_event.buf);
 	}
-	// if (k_msgq_peek(&rx_event_queue, &rx_event) == 0)  
-	// {
-	// 	// LOG_INF("Uart received:[%d]:%s\n",rx_event.len, rx_event.buf);
-	// 	uart_tx_write(rx_event.buf, rx_event.len);		//test the uart write api
-	// }
 
 	rx_recovery();
 }
@@ -311,36 +310,7 @@ static void uart_callback(const struct device *dev, struct uart_event *evt, void
 		k_sem_give(&tx_done_sem);
 		break;
 	case UART_RX_RDY:
-		rx_buf_ref(evt->data.rx.buf);	
-		/** send the rx data to message queue */
-		// rx_event.buf = k_calloc(evt->data.rx.len+1, sizeof(uint8_t));
-		// if (rx_event.buf != NULL) 
-		// {
-		// 	memcpy(rx_event.buf,&evt->data.rx.buf[evt->data.rx.offset],evt->data.rx.len);		//just test
-		// 	rx_event.len = evt->data.rx.len;
-		// 	if(0 == k_msgq_num_free_get(&rx_event_queue))
-		// 	{
-		// 		/* message queue is full ,we have to delete the oldest data to reserve room for the new data */
-		// 		struct rx_event_t oldest_event;
-		// 		k_msgq_get(&rx_event_queue, &oldest_event, K_NO_WAIT);
-		// 		LOG_INF("Droped data:[%d]:%s\n",oldest_event.len, oldest_event.buf);
-		// 		k_free(oldest_event.buf);
-		// 	}
-
-		// 	/** send the uart data to tcp server*/
-		// 	err = k_msgq_put(&rx_event_queue, &rx_event, K_NO_WAIT);
-		// 	if (err) {
-		// 		LOG_ERR("UART_RX_RDY failure: %d, dropped: %d", err, evt->data.rx.len);
-		// 		rx_buf_unref(evt->data.rx.buf);
-		// 		k_free(rx_event.buf);
-		// 		break;
-		// 	}
-		// } 
-		// else 
-		// {
-		// 	LOG_ERR("Memory not allocated!\n");
-		// }
-		
+		rx_buf_ref(evt->data.rx.buf);		
 		rx_event.buf = &evt->data.rx.buf[evt->data.rx.offset];
 		rx_event.len = evt->data.rx.len;
 		err = k_msgq_put(&rx_event_queue, &rx_event, K_NO_WAIT);
