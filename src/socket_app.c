@@ -54,7 +54,7 @@ static int do_tcp_send(int sock, const uint8_t *data, int datalen)
 
 static void receive_data_handle(uint8_t *data, uint16_t length)
 {
-	LOG_INF("Received %d bytes data from tcp server, data_segment:%d", length, *(data+0));
+	LOG_INF("Received %d bytes data from tcp server, data_segment:\"%s\"\n", length, data);
 }
 
 
@@ -135,6 +135,7 @@ retry:
 			// LOG_DBG("[%d]sock events 0x%08x at %lld.\n", ret,fds[0].revents,k_ticks_to_ms_floor64(k_uptime_ticks()));
 			if ((fds[0].revents & POLLIN) != 0) {
 				/* receive data from server */
+				memset(rec_buf, 0, sizeof(rec_buf));
 				ret = recv(fds[0].fd, (void *)rec_buf, sizeof(rec_buf), MSG_DONTWAIT);
 				if (ret < 0 && errno != EAGAIN) {
 					LOG_WRN("recv() error: %d", -errno);

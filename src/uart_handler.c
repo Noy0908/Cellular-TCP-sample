@@ -278,10 +278,10 @@ static int tx_start(void)
 		ring_buf_get_finish(&tx_buf, 0);
 		return err;
 	}
-	else
-	{
-		LOG_ERR("UART TX [%d] bytes Succeed!", len);
-	}
+	// else
+	// {
+	// 	LOG_ERR("UART TX [%d] bytes Succeed!", len);
+	// }
 
 	return 0;
 }
